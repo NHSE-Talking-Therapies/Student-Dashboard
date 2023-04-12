@@ -17,7 +17,7 @@ DECLARE @MonthYear AS VARCHAR(50) = (DATENAME(M, @PeriodStart) + ' ' + CAST(DATE
 
 PRINT CHAR(10) + 'Month: ' + CAST(@MonthYear AS VARCHAR(50))
 
------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------
 
 INSERT INTO [NHSE_Sandbox_MentalHealth].[dbo].[IAPT_Dashboard_Student_AnalysisV1]
 

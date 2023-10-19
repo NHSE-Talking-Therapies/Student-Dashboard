@@ -4,22 +4,22 @@ SET NOCOUNT ON
 --------------
 DECLARE @Offset INT = -1
 -------------------------
-DECLARE @Max_Offset INT = -2
+--DECLARE @Max_Offset INT = -1
 -------------------------------------|
-WHILE (@Offset >= @Max_Offset) BEGIN --| <-- Start loop 
+--WHILE (@Offset >= @Max_Offset) BEGIN --| <-- Start loop 
 -------------------------------------|
 
 DECLARE @PeriodStart DATE = (SELECT DATEADD(MONTH,@Offset,MAX([ReportingPeriodStartDate])) FROM [mesh_IAPT].[IsLatest_SubmissionID])
 DECLARE @PeriodEnd DATE = (SELECT EOMONTH(DATEADD(MONTH,@Offset,MAX([ReportingPeriodEndDate]))) FROM [mesh_IAPT].[IsLatest_SubmissionID])
-DECLARE @MonthYear VARCHAR(50) = (DATENAME(M, @PeriodStart) + ' ' + CAST(DATEPART(YYYY, @PeriodStart) AS VARCHAR))
+DECLARE @MonthYear DATE = (DATENAME(M, @PeriodStart) + ' ' + CAST(DATEPART(YYYY, @PeriodStart) AS VARCHAR))
 
 PRINT CHAR(10) + 'Month: ' + CAST(@MonthYear AS VARCHAR(50)) + CHAR(10)
 
------------------------------------------------------------------------------------------
+-- Insert into [MHDInternal].[DASHBOARD_TTAD_Student] ------------------------------------------------------------------------------------------
 
 INSERT INTO [MHDInternal].[DASHBOARD_TTAD_Student]
 
- SELECT	@MonthYear as 'Month'
+ SELECT	CAST(DATENAME(m, l.[ReportingPeriodStartDate]) + ' ' + CAST(DATEPART(yyyy, l.[ReportingPeriodStartDate]) AS VARCHAR) AS DATE) AS 'Month'
 		,'Refresh' AS 'DataSource'
 		,'England' AS 'GroupType'
 		,CASE WHEN r.OrgID_Provider IS NOT NULL THEN r.OrgID_Provider ELSE 'Other' END AS 'Provider Code'
@@ -50,24 +50,26 @@ INSERT INTO [MHDInternal].[DASHBOARD_TTAD_Student]
 		,COUNT(DISTINCT CASE WHEN ServDischDate BETWEEN @PeriodStart AND @PeriodEnd and r.TreatmentCareContact_Count >= 2 AND NotCaseness_Flag = 'true' AND EmployStatus = '03' THEN r.PathwayID ELSE NULL END) AS 'NotCasenessStudent'
 		,COUNT(DISTINCT CASE WHEN ServDischDate BETWEEN @PeriodStart AND @PeriodEnd AND r.TreatmentCareContact_Count >= 2 AND ReliableImprovement_Flag = 'True' AND EmployStatus = '03' THEN  r.PathwayID ELSE NULL END) AS 'Reliable Improvement STUDENT'
 		,COUNT(DISTINCT CASE WHEN ServDischDate BETWEEN @PeriodStart AND @PeriodEnd AND r.TreatmentCareContact_Count >= 2 AND ReliableImprovement_Flag = 'True' THEN  r.PathwayID ELSE NULL END) AS 'Reliable Improvement'
-			
+
 FROM    [mesh_IAPT].[IDS101referral] r
 		------------------------------
-		INNER JOIN [mesh_IAPT].[IDS001mpi] mpi ON r.[RecordNumber] = mpi.[RecordNumber]
+		INNER JOIN [mesh_IAPT].[IDS001mpi] mpi ON r.[recordnumber] = mpi.[recordnumber]
 		INNER JOIN [mesh_IAPT].[IsLatest_SubmissionID] l ON r.[UniqueSubmissionID] = l.[UniqueSubmissionID] AND r.[AuditId] = l.[AuditId]
-		-------------------------
-		LEFT JOIN [mesh_IAPT].[IDS004empstatus] e ON r.RecordNumber = e.RecordNumber
+		------------------------------
+		LEFT JOIN [mesh_IAPT].[IDS004empstatus] e ON r.[RecordNumber] = e.[RecordNumber]
 		LEFT JOIN [mesh_IAPT].[IDS201carecontact] cc ON r.[PathwayID] = cc.[PathwayID] AND cc.[AuditId] = l.[AuditId]
-		-------------------------
-		LEFT JOIN [Reporting].[Ref_ODS_Provider_Hierarchies_ICB] ph ON r.OrgID_Provider = ph.Organisation_Code AND ph.Effective_To IS NULL
+		------------------------------
+		LEFT JOIN [Reporting].[Ref_ODS_Provider_Hierarchies_ICB] ph ON r.[OrgID_Provider] = ph.[Organisation_Code] AND ph.[Effective_To] IS NULL
 
 WHERE l.[ReportingPeriodStartDate] BETWEEN @PeriodStart AND @PeriodEnd
-		AND UsePathway_Flag = 'True'  AND IsLatest = 1
+		AND UsePathway_Flag = 'True' 
+		AND IsLatest = 1
 
-GROUP BY CASE WHEN r.OrgID_Provider IS NOT NULL THEN r.OrgID_Provider ELSE 'Other' END
-		,CASE WHEN ph.Organisation_Name IS NOT NULL THEN ph.Organisation_Name ELSE 'Other' END 
+GROUP BY CAST(DATENAME(m, l.[ReportingPeriodStartDate]) + ' ' + CAST(DATEPART(yyyy, l.[ReportingPeriodStartDate]) AS VARCHAR) AS DATE)
+		,CASE WHEN r.[OrgID_Provider] IS NOT NULL THEN r.[OrgID_Provider] ELSE 'Other' END
+		,CASE WHEN ph.[Organisation_Name] IS NOT NULL THEN ph.[Organisation_Name] ELSE 'Other' END 
 
-------------------------------------------------------------------------------
+-- Create temp table for geographical data -----------------------------
 
 IF OBJECT_ID ('tempdb..#Postcodes') IS NOT NULL DROP TABLE #Postcodes
 
@@ -82,25 +84,24 @@ SELECT	[SiteCode]
 
 INTO #Postcodes FROM [MHDInternal].[ODS_All_Sites]
 
--- ------------------------------------------------------------------------------
+-- Update [MHDInternal].[DASHBOARD_TTAD_Student] with values from temp table  ---------------
 
 UPDATE [MHDInternal].[DASHBOARD_TTAD_Student]
 
-SET		Postcode = b.Postcode1,
-		GridRef = b.[Grid Reference],
-		Eastings = b.[X (easting)],
-		Northings = b.[Y (northing)],
-		Lat = b.Latitude,
-		Long = b.Longitude,
-		City = b.Address4
+SET		[Postcode] = pc.[Postcode1],
+		[GridRef] = pc.[Grid Reference],
+		[Eastings] = pc.[X (easting)],
+		[Northings] = pc.[Y (northing)],
+		[Lat] = pc.[Latitude],
+		[Long] = pc.[Longitude],
+		[City] = pc.[Address4]
 
 FROM	[MHDInternal].[DASHBOARD_TTAD_Student] a
-		LEFT JOIN #Postcodes b
-
-ON		a.[Provider Code]= b.SiteCode
+		----------------------------------------
+		LEFT JOIN #Postcodes pc ON a.[Provider Code]= pc.[SiteCode]
 
 ------------------------------|
-SET @Offset = @Offset-1 END --| <-- End loop
+--SET @Offset = @Offset-1 END --| <-- End loop
 ------------------------------|
 
-PRINT CHAR(10) + 'Updated - [MHDInternal].[DASHBOARD_TTAD_Student]'
+PRINT 'Updated - [MHDInternal].[DASHBOARD_TTAD_Student]' + CHAR(10)
